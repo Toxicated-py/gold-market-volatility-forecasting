@@ -1,195 +1,158 @@
-# Forecasting Gold Market Volatility Using Machine Learning
+# Gold Market Volatility Forecasting
 
-## Project Overview
+This DataTalksClub ML Zoomcamp project forecasts **realized gold volatility over
+the next five observed trading sessions**. It is a volatility and risk-estimation
+model, not a price-direction predictor or trading bot.
 
-This project uses machine learning to forecast short-term gold market volatility using historical gold futures data.
+## Data and target
 
-The objective is to estimate the volatility of gold over the **next five observed trading sessions**, using information available at the current trading session's close.
+The data comes from Yahoo Finance ticker `GC=F`, a continuous COMEX gold futures
+proxy. It is not the same instrument as XAUUSD spot. The target at date `t` is:
 
-This is a volatility forecasting project, not a trading bot. It does not generate buy or sell signals or attempt to predict market direction.
+`100 * sqrt(sum(log(Close[t+i] / Close[t+i-1]) ** 2 for i=1..5))`
 
-## Problem Statement
+The five sessions are observed trading sessions, not calendar days. The model
+uses 17 OHLC-derived features: current and overnight returns, intraday range,
+open-close return, return lags (1/2/3/5/10), realized volatility (5/10/20/60)
+and momentum (5/10/20/60). The canonical implementation is
+[`src/features.py`](src/features.py).
 
-Gold prices can experience periods of both low and high volatility. Estimating future volatility can help quantify market uncertainty and understand changing risk conditions.
+The raw data includes zero-volume records, flat OHLC records and historical OHLC
+consistency violations. These observations were investigated rather than silently
+deleted. Volume is excluded, and the OHLC masking experiment showed negligible
+validation impact. Large returns were retained because they may be genuine market
+events.
 
-This project investigates whether historical price behaviour, recent realized volatility, momentum and daily price ranges contain useful information for forecasting future gold volatility.
+## Methodology and results
 
-## Dataset
+Data is split chronologically with a five-observation purge between partitions:
 
-- **Source:** Yahoo Finance
-- **Ticker:** `GC=F`
-- **Instrument:** COMEX Gold Futures continuous-contract ticker
-- **Frequency:** Daily
-- **Raw observations:** 6,568
-- **Date range:** 30 August 2000 to 30 October 2026
-- **Features used:** OHLC-derived price features and historical return features
-
-Volume was excluded from model features because the historical volume data contained quality concerns.
-
-**Important:** `GC=F` is a gold futures proxy, not the same instrument as spot XAUUSD. Futures contract rolls and settlement-price conventions may affect historical observations.
-
-## Target Variable
-
-The target is the realized volatility over the next five observed trading sessions:
-
-\[
-Target_t = 100 \times \sqrt{\sum_{i=1}^{5}r_{t+i}^{2}}
-\]
-
-where:
-
-\[
-r_t = \ln\left(\frac{Close_t}{Close_{t-1}}\right)
-\]
-
-The target uses future returns from the five sessions following the feature date. It is not a five-calendar-day forecast.
-
-## Feature Engineering
-
-A total of 17 features were created.
-
-### Price and return features
-- Current daily return
-- Overnight gap
-- Intraday price range
-- Open-to-close return
-- Lagged returns over 1, 2, 3, 5 and 10 sessions
-
-### Historical volatility features
-- 5-session realized volatility
-- 10-session realized volatility
-- 20-session realized volatility
-- 60-session realized volatility
-
-### Momentum features
-- 5-session momentum
-- 10-session momentum
-- 20-session momentum
-- 60-session momentum
-
-All features are constructed using information available at the prediction date.
-
-## Methodology
-
-The project follows a chronological machine learning workflow.
-
-1. Download historical gold futures data.
-2. Perform exploratory data analysis.
-3. Investigate missing values, duplicate dates and OHLC consistency.
-4. Engineer historical return, volatility and momentum features.
-5. Create a future five-session volatility target.
-6. Split the dataset chronologically.
-7. Establish baseline performance.
-8. Train and compare machine learning models.
-9. Tune Random Forest and XGBoost using time-series cross-validation.
-10. Analyse model performance and feature importance.
-11. Evaluate the final selected model on an untouched test dataset.
-
-### Chronological data split
-
-| Dataset | Observations | Period |
+| Partition | Rows | Period |
 |---|---:|---|
-| Training | 4,547 | 27 Nov 2000 – 16 Jan 2019 |
-| Validation | 970 | 25 Jan 2019 – 29 Nov 2022 |
-| Test | 976 | 7 Dec 2022 – 23 Oct 2026 |
+| Train | 4,547 | 2000-11-27 to 2019-01-16 |
+| Validation | 970 | 2019-01-25 to 2022-11-29 |
+| Test | 976 | 2022-12-07 to 2026-10-23 |
 
-Five observations were purged between each split to prevent overlapping five-session target windows across dataset boundaries.
+The selected model is XGBoost, retrained on train plus validation data:
+500 estimators, depth 3, learning rate 0.01, subsample 0.7,
+`colsample_bytree=0.7`, `min_child_weight=10`, and `reg_lambda=1`.
 
-## Models
-
-The following models were evaluated:
-
-- Mean baseline
-- Five-day volatility persistence baseline
-- Linear Regression
-- Decision Tree Regressor
-- Random Forest Regressor
-- XGBoost Regressor
-
-XGBoost was selected based on validation performance and tuned using `TimeSeriesSplit` with four folds and a five-observation gap.
-
-### Final XGBoost configuration
-
-- `n_estimators`: 500
-- `max_depth`: 3
-- `learning_rate`: 0.01
-- `subsample`: 0.7
-- `colsample_bytree`: 0.7
-- `min_child_weight`: 10
-- `reg_lambda`: 1
-
-## Final Test Results
-
-The final model was retrained using the combined training and validation datasets. The test dataset was kept separate for final evaluation.
+The current reproducible held-out test results are:
 
 | Model | RMSE | MAE | R² |
 |---|---:|---:|---:|
-| Mean Baseline | 1.4683 | 0.9692 | -0.0370 |
-| Five-day Persistence | 1.5002 | 1.0214 | -0.0826 |
-| **Final XGBoost** | **1.1692** | **0.8071** | **0.3424** |
+| Mean baseline | 1.4683 | 0.9692 | -0.0370 |
+| 5-day persistence | 1.5002 | 1.0214 | -0.0826 |
+| Final XGBoost | **1.1692** | **0.8071** | **0.3424** |
 
-The final XGBoost model achieved a **20.37% reduction in RMSE** compared with the mean baseline.
+The model reduces RMSE by 20.37% versus the mean baseline, but meaningful
+unexplained variation remains. Results are not a guarantee of future performance.
 
-The positive R² indicates that the model captures some useful variation in future volatility. However, the remaining unexplained variation means that its forecasts should not be treated as precise predictions.
+## Repository structure
 
-## Feature Importance
+```text
+data/                 Raw and processed datasets
+models/               Final model and metadata
+reports/              Metrics, predictions and figures
+src/features.py       Shared feature engineering
+src/predict.py        Cached model loading and inference
+train.py              Reproducible final training/evaluation
+app.py                FastAPI service
+tests/                Feature, prediction and API tests
+notebooks/            Executed analysis notebook
+01_*.py ... 11_*.py   Original analysis and experiment scripts
+Dockerfile            Container deployment
+```
 
-Permutation importance on the validation dataset identified the following leading features:
+## Windows PowerShell setup
 
-1. `realized_vol_60d`
-2. `realized_vol_20d`
-3. `momentum_60d`
-4. `intraday_range_pct`
-5. `momentum_20d`
-6. `realized_vol_10d`
+Python 3.11 is recommended because it is the deployment base image. From the
+repository root:
 
-Historical volatility features were particularly informative, suggesting that recent volatility regimes contain useful information about near-term volatility.
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-## Data Quality Considerations
+The pinned dependency set is intended for Python 3.11. The local audit used
+Python 3.14 where older pinned NumPy wheels are unavailable; use Python 3.11
+for a clean installation.
 
-The investigation identified 441 historical records with at least one OHLC consistency violation. These records occurred between 2001 and 2011.
+## Train and test
 
-A controlled experiment masked the three OHLC-derived features on those dates. This produced almost identical validation performance, so the original feature dataset was retained.
+The processed chronological splits are already included. To retrain the final
+model and regenerate all final artifacts:
 
-Large daily price movements were also investigated. They were not automatically removed because unusually large returns can represent genuine market events.
+```powershell
+python train.py
+pytest -q
+```
 
-These findings are documented as limitations of the underlying historical data.
+This writes `models/gold_volatility_xgboost_final.joblib`,
+`models/model_metadata.json`, `reports/final_test_metrics.csv`,
+`reports/test_predictions.csv`, and `reports/final_feature_importance.csv`.
+The analysis notebook can be executed with:
 
-## Limitations
+```powershell
+python -m jupyter nbconvert --to notebook --execute `
+  notebooks/gold_volatility_analysis.ipynb --inplace `
+  --ExecutePreprocessor.timeout=300
+```
 
-- Yahoo Finance's continuous gold futures ticker is not identical to spot gold.
-- Historical futures data may contain contract-roll and settlement-price effects.
-- Historical OHLC inconsistencies may affect some engineered features.
-- The model has limited predictive power and does not explain all future volatility variation.
-- Evaluation is based on one chronological test period.
-- The model does not predict price direction or generate trading signals.
-- No live deployment or real-time forecasting performance has been established.
+## API
 
-## Technologies Used
+Start the service:
 
-- Python
-- Pandas
-- NumPy
-- Matplotlib
-- Scikit-learn
-- XGBoost
-- Joblib
-- Yahoo Finance data
+```powershell
+uvicorn app:app --reload
+```
 
-## Project Outputs
+Open Swagger at <http://127.0.0.1:8000/docs>. `GET /health` checks that the
+serialized model is available. `POST /predict` accepts at least 61 historical
+observations because the 60-session feature needs 61 closes:
 
-- Final trained model: `models/gold_volatility_xgboost_final.joblib`
-- Test predictions: `reports/test_predictions.csv`
-- Final metrics: `reports/final_test_metrics.csv`
-- Model comparison and feature importance: `data/processed/` and `reports/`
-- Visualisations: `reports/figures/`
+```json
+{
+  "history": [
+    {
+      "date": "2026-08-01",
+      "open": 3350.0,
+      "high": 3370.0,
+      "low": 3340.0,
+      "close": 3360.0
+    }
+  ]
+}
+```
 
-## Conclusion
+The example above is intentionally abbreviated and is not sufficient by itself.
+A successful response contains `as_of_date`, `observations_used`,
+`predicted_future_5d_volatility_pct`, and the target definition. The API
+calculates all features internally and never uses future observations.
 
-This project demonstrates an end-to-end time-series regression workflow for forecasting gold market volatility.
+## Docker
 
-The final XGBoost model outperformed both baseline approaches on the untouched test period, achieving a 20.37% reduction in RMSE against the mean baseline.
+With Docker installed:
 
-The results suggest that historical volatility and longer-term momentum contain useful information for forecasting short-term gold volatility. However, the model's performance is not sufficient to guarantee reliable forecasts under all market conditions.
+```powershell
+docker build -t gold-volatility-api .
+docker run --rm -p 8000:8000 gold-volatility-api
+```
 
-The project is an experimental forecasting study and should not be interpreted as financial advice or a production-ready trading system.
+Then visit <http://localhost:8000/docs>. The image contains only the API,
+shared code, pinned dependencies and final model artifact.
+
+## Reproducibility and responsible use
+
+`train.py` records feature order, target, parameters, date ranges and library
+versions in `models/model_metadata.json`. The final test partition remains
+held out during fitting. The notebook and original scripts preserve the EDA,
+data-quality investigations, model comparisons, tuning, outlier analysis and
+OHLC masking experiment.
+
+This is an experimental study based on one historical test period and a
+third-party futures proxy. Futures rolls, settlement conventions, data-quality
+issues and regime changes can affect performance. Forecasts are not financial
+advice and should not be used as a sole basis for investment decisions.

@@ -9,3 +9,8 @@ env/
 .vscode/
 
 .env
+
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
